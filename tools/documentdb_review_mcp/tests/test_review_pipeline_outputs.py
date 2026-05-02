@@ -25,6 +25,7 @@ def test_review_output_schema():
             report = json.load(f)
         assert 'findings' in report
         assert 'deterministic_tools' in report
+        assert 'tool_installation' in report
         assert 'llm_review_input' in report
         assert 'findings_context' in report['llm_review_input']
     finally:

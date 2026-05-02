@@ -78,3 +78,13 @@ See `integrations.md` for a concrete JSON excerpt.
 2. emits `llm_review_input` (structured context pack + system prompt) so you can feed directly into an LLM for deeper reasoning.
 
 So yes — feeding what we built to the LLM directly is supported through `llm_review_input` in `review_report.json`.
+
+## Auto-install of deterministic tools
+
+`review_pipeline.py review` now attempts to install missing tools automatically via pip:
+- `ruff`
+- `pyright`
+- `bandit`
+- `semgrep`
+
+Installation status is included in `review_report.json` under `tool_installation`.

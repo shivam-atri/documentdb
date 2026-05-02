@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, ast, json, math, re, sqlite3, subprocess
+import argparse, ast, json, math, re, shutil, sqlite3, subprocess
 from collections import Counter, defaultdict
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -123,6 +123,33 @@ def build_index(repo:Path,out:Path):
     (out/'python_index.json').write_text(json.dumps(json_payload,indent=2),encoding='utf-8')
     conn.close()
 
+
+
+def _ensure_tools_installed() -> list[dict]:
+    """Install required review tools if missing."""
+    installs = []
+    package_map = {
+        "ruff": "ruff",
+        "pyright": "pyright",
+        "bandit": "bandit",
+        "semgrep": "semgrep",
+    }
+    for binary, pkg in package_map.items():
+        if shutil.which(binary):
+            installs.append({"tool": binary, "installed": True, "action": "already_present"})
+            continue
+        cmd = ["python3", "-m", "pip", "install", pkg]
+        p = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        installs.append({
+            "tool": binary,
+            "installed": p.returncode == 0,
+            "action": "pip_install",
+            "returncode": p.returncode,
+            "stderr": p.stderr[-500:] if p.stderr else "",
+        })
+    return installs
+
+
 def _run(cmd):
     try:
         p=subprocess.run(cmd,capture_output=True,text=True,check=False)
@@ -198,6 +225,7 @@ def _build_llm_review_input(cur, changed_findings):
 def review(repo:Path,out:Path,base:str,head:str):
     db=sqlite3.connect(out/'review_index.db'); cur=db.cursor()
     changes=_parse(_diff(repo,base,head))
+    install_status = _ensure_tools_installed()
     tools=[_run(["ruff","check",str(repo)]),_run(["pyright",str(repo)]),_run(["bandit","-r",str(repo),"-q"]),_run(["semgrep","--config=auto",str(repo)])]
     findings=[]
     for path,line in changes:
@@ -215,7 +243,7 @@ def review(repo:Path,out:Path,base:str,head:str):
         findings.append({"file":path,"line":line,"symbol":s['qualname'],"severity":sev,"confidence":min(0.9,0.35+math.log2(risk+1)/4),"impacted":impacted,"rag_context":ctx})
     findings.sort(key=lambda x:({'high':0,'medium':1,'low':2}[x['severity']],-x['confidence']))
     llm_input = _build_llm_review_input(cur, findings)
-    report={"base":base,"head":head,"storage":str(out/'review_index.db'),"rag_enabled":True,"deterministic_tools":tools,"findings":findings,"llm_review_input":llm_input}
+    report={"base":base,"head":head,"storage":str(out/'review_index.db'),"rag_enabled":True,"tool_installation":install_status,"deterministic_tools":tools,"findings":findings,"llm_review_input":llm_input}
     (out/'review_report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
     db.close()
 
